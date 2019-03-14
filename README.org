@@ -7,7 +7,7 @@
 :TOC:QUOTE:
 #+BEGIN_QUOTE
 - *[[#introduction][Introduction]]*
-  - [[#required-hardware-boards-and-software-libraries][Required hardware (boards) and software (libraries)]]
+  - [[#required-hardware-and-software][Required hardware and software]]
   - [[#development-environment][Development environment]]
 - *[[#key-management-preparing-the-developers-private-dfu-key-and-public-key-certificate][Key management: preparing the developer’s private DFU key and public-key certificate]]*
   - [[#generate-the-developers-private-key-using-nordic-tools][Generate the developer’s private key, using Nordic tools]]
@@ -54,7 +54,7 @@ But once understood, Nordic SDK and Trust X provide an easy, production-quality 
 All the steps are illustrated and summarized here:
 [[file:./doc/dfu-full-flow.png]]
 
-** Required hardware (boards) and software (libraries)
+** Required hardware and software
 
 This guide requires a *target system* (your device) composed of:
 - Nordic nRF52832 development kit. The guide can in principle also be used with other Nordic boards, but the supplied project files are configured to work with nRF52832 out of the box.
