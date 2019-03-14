@@ -4,7 +4,7 @@
 #+OPTIONS: ^:nil
 #+SETUPFILE: https://fniessen.github.io/org-html-themes/setup/theme-readtheorg.setup
 
-:TOC:QUOTE:
+** [[#table-of-contents][Table of Contents]] :TOC:QUOTE:
 #+BEGIN_QUOTE
 - *[[#introduction][Introduction]]*
   - [[#required-hardware-and-software][Required hardware and software]]
@@ -54,7 +54,7 @@ But once understood, Nordic SDK and Trust X provide an easy, production-quality 
 All the steps are illustrated and summarized here:
 [[file:./doc/dfu-full-flow.png]]
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Required hardware and software
 
@@ -82,7 +82,7 @@ Not all directories are already populated.
 Some 3rd party tools need to be downloaded separately and placed into the respective folders.
 All paths mentioned in this guide are relative to the root of this repository, if not indicated otherwise.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Development environment
 
@@ -126,7 +126,7 @@ The security in secure firmware update and secure boot is based on public-key cr
 Thus, a corresponding key pair needs to be generated, and the public verification key distributed to devices.
 This section explains how to obtain the keys.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Generate the developer's private key, using Nordic tools
 Execute the following command:
@@ -139,7 +139,7 @@ This private key must be strongly protected:
 - from unauthorized access - otherwise illicit firmware images can be signed with the key.
 - from loss - without access to the private key, no new firmware updates can be signed and thus installed on devices out in the field.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Create a self-signed developer certificate
 Using OpenSSL, create a self-signed developer certificate that contains the developer's public key.
@@ -151,7 +151,7 @@ The result is the file =developer_key.cert.der=, which contains the developer's 
 The certificate is encoded in DER format.
 To compile the certificate into a firmware binary, it needs to be converted into a C-style array that can be inserted into a C source file.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Output the certificate as C-array formatted string
 Use the Python script ~bin2chex.py~ to get the certificate printed as a C-array string:
@@ -159,18 +159,18 @@ Use the Python script ~bin2chex.py~ to get the certificate printed as a C-array 
 python.exe .\tools\bin2chex.py -f .\key\developer_key.cert.der
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Trust X personalization: installing the developer certificate onto Trust X
 The public verification key (contained in the public-key certificate) needs to be saved to Trust X, in order to serve as a trust anchor for DFU and boot validation.
 This section explains how to create an application that writes the data to Trust X, and then protects it by locking it from future modification.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Implement personalization application
 The SES project for the personalization firmware is located in ~fw_perso\ses\pca10040\s132\ses\perso_pca10040_s132.emProject~.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** About metadata
 Trust X provides storage slots for several data objects.
@@ -178,7 +178,7 @@ These data objects can store secret keys, public-key certificates, or general-pu
 Access conditions must be fulfilled to access or use a data object.
 [[./doc/trustx-objects.png]]
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 *** Access types
 There are four access types.
@@ -245,7 +245,7 @@ You need to compute a signature that matches your private key, in order for this
 The instructions are listed in the function's comment block.
 If you want to skip this step, comment out the verification step and always return ~true~.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Compile and program the application
 Compile and link the application, using SES.
@@ -254,7 +254,7 @@ Run the application once to conduct the personalization of Trust X.
 During personalization, the developer certificate is transfer to Trust X and stored safely in the non-volatile memory of Trust X.
 From now on, it can be used to verify digital signatures that were computed using the developer's private key.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Application: preparing a dummy application for testing
 
@@ -275,7 +275,7 @@ Then, modify the ~NRF_LOG_INFO()~ statement again, to print ~Version 2~ instead.
 Compile the binary, and copy the resulting hex file, and rename it to ~v2.hex~.
 Repeat the procedure a few more times to have 5 versions of your application, named ~v1.hex~ to ~v5.hex~.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Preparing the update packages (ZIP files)
 The application binaries need to be packaged into update package, composed of the init packet and the firmware binary.
@@ -325,13 +325,13 @@ DFU Package: <.\fw_app\zip_sec-boot\v1.zip>:
       |- is_debug: False
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Bootloader: prepare a Trust X based bootloader
 The bootloader is based on the Nordic SDK 15.3 example project ~sdk\nRF5\examples\dfu\secure_bootloader\pca10040_ble_debug\ses\secure_bootloader_ble_s132_pca10040_debug.emProject~.
 Nordic explains the [[https://www.nordicsemi.com/DocLib/Content/SDK_Doc/nRF5_SDK/v15-2-0/ble_sdk_app_dfu_bootloader][LE Secure DFU Bootloader]] in its online documentation.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Add Trust X dependencies to Nordic SDK bootloader
 :PROPERTIES:
@@ -342,7 +342,7 @@ It is based on the above Nordic SDK example.
 The modifications that have been conducted to enable Trust X for signature verification during secure DFU are explained in the appendix.
 You can go ahead with the bootloader as prepared.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Testing
 
@@ -366,7 +366,7 @@ Point to one of the ZIP files generated before, and start the DFU process.
 
 If the process completes successfully, the bootloader has successfully verified the firmware update using Trust X.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Prepare complete firmware binary
 In the previous part, the first version of the appliction binary was installed via the secure DFU procedure.
@@ -379,7 +379,7 @@ Therefore, we need to generate a full firmware binary, which includes:
  - Bootloader settings page
 The tool =mergehex.exe= can combine multiple binaries into a single hex file.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Create a bootloader settings page
 To create the bootloader settings page, use =nrfutil=:
@@ -414,7 +414,7 @@ The output will look similar to:
   * App Boot Validation Type: 0x00000003 (3)
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Merge all firmware binaries into one
 The four firmware binaries need to be merged into a single hex file.
@@ -438,7 +438,7 @@ mergehex.exe
     -o  .\fw_merged\bl+bls+sd+app_v1.hex
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Programming the merged firmware binary
 For programming, use the Nordic tool =nrfjprog=.
@@ -458,7 +458,7 @@ The bootloader will start up your application.
 To bring the device back into DFU mode, hold button 4 while pressing the reset button.
 Both buttons are located on the nRF52 development board.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Conducting a firmware update
 After the merged firmware binary was programmed, the application version 1 is running on the development kit hardware.
@@ -473,12 +473,12 @@ This happens because the initial, merged firmware that we programmed using ~nrfj
 
 Thus, select ~fw_app\zip\v2.zip~ and install a new application version - this time successfully.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Testing secure boot
 There are two different ways how the effect of secure boot can be observed.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 *** Modify the signed application and reset the device
 Flash version 2 of firmware binary a.
@@ -518,7 +518,7 @@ index 34ba894..ed98474 100644
      {
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Using Secure DFU without Secure Boot
 To NOT use the secure boot feature, the boot validation method needs to be changed, and the requirement for a signed application in the bootloader needs to be softened.
@@ -548,7 +548,7 @@ nrfutil settings generate
 
 Finally, merge again the hex files using ~mergehex~, and program the merged application using ~nrfjprog~.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Frequent questions and troubleshooting
 ** Where is the signature check conducted?
@@ -559,13 +559,13 @@ The above validation function calls the signature computation via the ~nrf_crypt
 In the above project, the OPTIGA™ implementation for the ~nrf_crypto~ API has been enabled in ~sdk_config.h~, thus the verification is conducted using Trust X.
 Additionally, the public verification key is not part of the bootloader firmware, but stored securely on Trust X.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** LED interference
 When using the Nordic PCA10040 board with the Trust X Shield the LEDs ~BSP_BOARD_LED_1~ and ~BSP_BOARD_LED_2~ must not be used.
 These pins are needed for the correct operation of the OPTIGA™ Trust X when using the Arduino-compatible Trust X Shield (Version 0.5).
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Initialization of Trust X backend is stuck
 
@@ -590,7 +590,7 @@ To enable this timer the user must ensure that LF clock is running before callin
     }
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Logging debug output of bootloader and application
 The RTT client can only connect to either the bootloader's logger, or to the application's logger.
@@ -598,7 +598,7 @@ Thus, there are two workarounds:
 - Use the serial log backend
 - Use the following approach to get RTT to work: [[https://devzone.nordicsemi.com/f/nordic-q-a/30310/easy-way-to-merge-bootloader-and-application-rtt-output][Easy way to merge bootloader and application RTT output (accessed 2019-02-05)]]
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Optimizing bootloader size
 
@@ -616,7 +616,7 @@ Place this line immediately after:
 #+END_SRC
 The production bootloader is not affected by this issue.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 *** Determining the minimum possible bootloader size
 Two variables describe the bootloader size:
@@ -628,14 +628,14 @@ The maxmium ~FLASH_SIZE~ value that was test with Trust X enabled bootloader for
 The nrf_dfu_validation_post_external_app_execute() function is only relevant if you use external apps (applications not intended for this device, but which should be forwarded to another device down the line). In this case, it gives a possibility for extra validation of a received external application. You can use an empty implementation or remove the call to it from postvalidate() if you don’t see the need for it.
 It is not used if you disable ~NRF_DFU_SUPPORTS_EXTERNAL_APP~ in ~sdk_config.h~.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Where in memory is the master boot record located?
 The master boot record (MBR) is Nordic proprietary and the source code is not distributed publicly by Nordic.
 The MBR is part of the SoftDevice binary file.
 In memory, the MBR is located from ~0x0000 0000~ to ~0x0000 FFFF~.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 ** Error during DFU procedure (result code 5 - invalid object)
 
@@ -655,12 +655,12 @@ Please consult the memory layout illustrated in this guide, and make sure to hav
 *** Observation
 A Trust X host library functions returns the status code 0x8001003 during the signature verification.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 *** Solution
 The error is likely caused by not having increased the heap size to 8192 Byte.
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
 
 * Appendix
 
@@ -1175,4 +1175,4 @@ To resolve this issue, comment out the lines that control the respective LEDs in
 //            bsp_board_led_on(BSP_BOARD_LED_2);
 #+END_SRC
 
-[[#introduction][Top]]
+[[#table-of-contents][Top]]
