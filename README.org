@@ -47,6 +47,7 @@
 #+END_QUOTE
 
 * Introduction
+
 This guide describes how to set-up and conduct secure device firmware update (DFU) and secure boot on Nordic nRF52 using Infineon hardware-based security.
 The overall tooling and setup process can appear quite complex, and the individual steps have dependencies on other steps.
 But once understood, Nordic SDK and Trust X provide an easy, production-quality and exhaustive solution to introduce secure DFU and secure boot into your product.
@@ -54,6 +55,7 @@ All the steps are illustrated and summarized here:
 [[file:./doc/dfu-full-flow.png]]
 
 ** Required hardware (boards) and software (libraries)
+
 This guide requires a *target system* (your device) composed of:
 - Nordic nRF52832 development kit. The guide can in principle also be used with other Nordic boards, but the supplied project files are configured to work with nRF52832 out of the box.
 - OPTIGA Trust X Shield with an OPTIGA Trust X (firmware version 1.20.1048 or newer)
@@ -74,13 +76,20 @@ The software development framework is composed of:
 Not all directories are already populated.
 Some 3rd party tools need to be downloaded separately and placed into the respective folders.
 All paths mentioned in this guide are relative to the root of this repository, if not indicated otherwise.
+
 ** Development environment
+
 *** Segger Embedded Studio (SES)
+
 This guides is written for *Segger Embedded Studio* to configure and compile the provided project files.
 SES is free to use for Nordic customers, and available via [[https://www.nordicsemi.com/Software-and-Tools/Development-Tools/Segger-Embedded-Studio][Nordic's website]].
+
 *** Nordic nRF Connect for Desktop
+
 Nordic's *nRF Connect for Desktop*, is available at [[https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Connect-for-desktop][Nordic's website]].
+
 *** Nordic nRF5x Command Line Tools
+
 The *nRF5x Command Line Tools* contain (among others) the following required tools: =mergehex=, =nrfjprog=.
 They are typically installed in ~C:\Program Files (x86)\Nordic Semiconductor\nrf5x\bin~ directory.
 Obtain the complete package from [[https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF5-Command-Line-Tools][Nordic's website]].
