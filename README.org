@@ -60,8 +60,7 @@ This guide requires a *target system* (your device) composed of:
 - Nordic nRF52832 development kit. The guide can in principle also be used with other Nordic boards, but the supplied project files are configured to work with nRF52832 out of the box.
 - OPTIGA™ Trust X Shield with an OPTIGA™ Trust X (firmware version 1.20.1048 or newer)
 
-#+ATTR_HTML: :width 50% :height 50%
-[[file:./doc/optiga_trust_x_dfu.jpg]]
+[[file:./doc/optiga_trust_x_dfu_small.jpg]]
 
 The software development framework is composed of:
 - Infineon OPTIGA™ Trust X software framework, located on [[https://github.com/Infineon/optiga-trust-x][Github]].
