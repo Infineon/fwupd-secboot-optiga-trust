@@ -7,43 +7,43 @@
 * Table of Contents                                                     :TOC:QUOTE:
 #+BEGIN_QUOTE
 - *[[#introduction][Introduction]]*
-  - [[#hardware_reqs][Required hardware (boards) and software (libraries)]]
-  - [[#development_env][Development environment]]
-- *[[#key_management][Key management: preparing the developer’s private DFU key and public-key certificate]]*
-  - [[#][Generate the developer’s private key, using Nordic tools]]
-  - [[#][Create a self-signed developer certificate]]
-  - [[#][Output the certificate as C-array formatted string]]
-- *[[#personalization][Trust X personalization: installing the developer certificate onto Trust X]]*
-  - [[#][Implement personalization application]]
-  - [[#][About metadata]]
-  - [[#][Copy developer certificate into personalization application]]
-  - [[#][Compile and program the application]]
-- *[[#application][Application: preparing a dummy application for testing]]*
-  - [[#][Preparing the project and compiling the firmware binary]]
-  - [[#][Preparing the update packages (ZIP files)]]
-- *[[#bootloader][Bootloader: prepare a Trust X based bootloader]]*
-  - [[#][Add Trust X dependencies to Nordic SDK bootloade]]
-  - [[#][Testing]]
-- *[[#prepare_fw_image][Prepare complete firmware binary]]*
-  - [[#][Create a bootloader settings page]]
-  - [[#][Merge all firmware binaries into one]]
-  - [[#][Programming the merged firmware binary]]
-  - [[#][Conducting a firmware update]]
-- *[[#testing_secure_boot][Testing secure boot]]*
-  - [[#][Modify the signed application and reset the device]]
-  - [[#][Add a debug statement to highlight when Trust X is used during the process]]
-- *[[#dfu_without_dsecure_boot][Using Secure DFU without Secure Boot]]*
-- *[[#faq][FAQ and troubleshooting]]*
-  - [[#][Add a debug statement to highlight when Trust X is used during the process]]
-  - [[#][LED interference]]
-  - [[#][Initialization of Trust X backend is stuck]]
-  - [[#][Logging debug output of bootloader and application]]
-  - [[#][Optimizing bootloader size]]
-  - [[#][What is nrf_dfu_validation_post_external_app_execute for?]]
-  - [[#][Where in memory is the master boot record located?]]
-  - [[#][Error during DFU procedure (result code 5 - invalid object)]]
-  - [[#][Error 0x80001003]]
-- *[[#][Appendix]]*
+  - [[#required-hardware-boards-and-software-libraries][Required hardware (boards) and software (libraries)]]
+  - [[#development-environment][Development environment]]
+- *[[#key-management-preparing-the-developers-private-dfu-key-and-public-key-certificate][Key management: preparing the developer’s private DFU key and public-key certificate]]*
+  - [[#generate-the-developers-private-key-using-nordic-tools][Generate the developer’s private key, using Nordic tools]]
+  - [[#create-a-self-signed-developer-certificate][Create a self-signed developer certificate]]
+  - [[#output-the-certificate-as-c-array-formatted-string][Output the certificate as C-array formatted string]]
+- *[[#trust-x-personalization-installing-the-developer-certificate-onto-trust-x][Trust X personalization: installing the developer certificate onto Trust X]]*
+  - [[#implement-personalization-application][Implement personalization application]]
+  - [[#about-metadata][About metadata]]
+  - [[#copy-developer-certificate-into-personalization-application][Copy developer certificate into personalization application]]
+  - [[#compile-and-program-the-application][Compile and program the application]]
+- *[[#application-preparing-a-dummy-application-for-testing][Application: preparing a dummy application for testing]]*
+  - [[#preparing-the-project-and-compiling-the-firmware-binary][Preparing the project and compiling the firmware binary]]
+  - [[#preparing-the-update-packages-zip-files][Preparing the update packages (ZIP files)]]
+- *[[#bootloader-prepare-a-trust-x-based-bootloader][Bootloader: prepare a Trust X based bootloader]]*
+  - [[#add-trust-x-dependencies-to-nordic-sdk-bootloader][Add Trust X dependencies to Nordic SDK bootloader]]
+  - [[#testing][Testing]]
+- *[[#prepare-complete-firmware-binary][Prepare complete firmware binary]]*
+  - [[#create-a-bootloader-settings-page][Create a bootloader settings page]]
+  - [[#merge-all-firmware-binaries-into-one][Merge all firmware binaries into one]]
+  - [[#programming-the-merged-firmware-binary][Programming the merged firmware binary]]
+  - [[#conducting-a-firmware-update][Conducting a firmware update]]
+- *[[#testing-secure-boot][Testing secure boot]]*
+  - [[#modify-the-signed-application-and-reset-the-device][Modify the signed application and reset the device]]
+  - [[#add-a-debug-statement-to-highlight-when-trust-x-is-used-during-the-process][Add a debug statement to highlight when Trust X is used during the process]]
+- *[[#using-secure-dfu-without-secure-boot][Using Secure DFU without Secure Boot]]*
+- *[[#faq-and-troubleshooting][FAQ and troubleshooting]]*
+  - [[#where-is-the-signature-check-conducted][Where is the signature check conducted?]]
+  - [[#led-interference][LED interference]]
+  - [[#initialization-of-trust-x-backend-is-stuck][Initialization of Trust X backend is stuck]]
+  - [[#logging-debug-output-of-bootloader-and-application][Logging debug output of bootloader and application]]
+  - [[#optimizing-bootloader-size][Optimizing bootloader size]]
+  - [[#what-is-nrf_dfu_validation_post_external_app_execute-for][What is nrf_dfu_validation_post_external_app_execute for?]]
+  - [[#where-in-memory-is-the-master-boot-record-located][Where in memory is the master boot record located?]]
+  - [[#error-during-dfu-procedure-result-code-5---invalid-object][Error during DFU procedure (result code 5 - invalid object)]]
+  - [[#error-0x80001003][Error 0x80001003]]
+- *[[#appendix][Appendix]]*
 #+END_QUOTE
 
 * Introduction
