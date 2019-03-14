@@ -4,7 +4,7 @@
 #+OPTIONS: ^:nil
 #+SETUPFILE: https://fniessen.github.io/org-html-themes/setup/theme-readtheorg.setup
 
-* Table of Contents                                                     :TOC:QUOTE:
+:TOC:QUOTE:
 #+BEGIN_QUOTE
 - *[[#introduction][Introduction]]*
   - [[#required-hardware-boards-and-software-libraries][Required hardware (boards) and software (libraries)]]
