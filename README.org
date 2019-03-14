@@ -1,5 +1,5 @@
 #+SECUREDFU: -*- mode:org -*-
-#+TITLE: Secure device firmware update (DFU) and secure boot using OPTIGA Trust X on Nordic nRF52 series
+#+TITLE: Secure device firmware update (DFU) and secure boot using OPTIGA™ Trust X on Nordic nRF52 series
 #+AUTHOR: Christian Lesjak, Infineon Technologies
 #+OPTIONS: ^:nil
 #+SETUPFILE: https://fniessen.github.io/org-html-themes/setup/theme-readtheorg.setup
@@ -58,9 +58,13 @@ All the steps are illustrated and summarized here:
 
 This guide requires a *target system* (your device) composed of:
 - Nordic nRF52832 development kit. The guide can in principle also be used with other Nordic boards, but the supplied project files are configured to work with nRF52832 out of the box.
-- OPTIGA Trust X Shield with an OPTIGA Trust X (firmware version 1.20.1048 or newer)
+- OPTIGA™ Trust X Shield with an OPTIGA™ Trust X (firmware version 1.20.1048 or newer)
+
+#+ATTR_HTML: :width 50% :height 50%
+[[file:./doc/optiga_trust_x_dfu.jpg]]
+
 The software development framework is composed of:
-- Infineon OPTIGA Trust X software framework, located on [[https://github.com/Infineon/optiga-trust-x][Github]].
+- Infineon OPTIGA™ Trust X software framework, located on [[https://github.com/Infineon/optiga-trust-x][Github]].
 - Nordic nRF5 SDK, version 15.3, located on [[https://www.nordicsemi.com/Software-and-Tools/Software/nRF5-SDK][Nordic's website]].
 - This support package, with the following folder structure:
   - fw_app: Application project, binaries and update packages
@@ -109,7 +113,7 @@ pip install nrfutil
 *** OpenSSL
 *OpenSSL* is a powerful toolkit for cryptography and public key management.
 OpenSSL in binary form can be obtained via [[http://wiki.overbyte.eu/wiki/index.php/ICS_Download#Download_OpenSSL_Binaries_.28required_for_SSL-enabled_components.29][here]].
-*** OPTIGA tools python script
+*** OPTIGA™ tools python script
 This small Python script =bin2chex.py= converts any (binary) file into a string formatted as a C array initializer.
 * Key management: preparing the developer's private DFU key and public-key certificate
 The security in secure firmware update and secure boot is based on public-key cryptography.
@@ -290,7 +294,7 @@ You can go ahead with the bootloader as prepared.
 ** Testing
 *** Program the bootloader
  To test the bootloader, compile it with SES.
- Then, connect a Nordic nRF52832 development board, with OPTIGA Trust X shield plugged-in on top, to the computer.
+ Then, connect a Nordic nRF52832 development board, with OPTIGA™ Trust X shield plugged-in on top, to the computer.
  To make sure the flash of the nRF52832 is completely erased, first connect J-Link (Target > Connect J-Link), and erase the flash (Target > Erase All).
  Then, program the application and start debuggin (Debug > Go; or F5).
 *** Conduct a secure firmware update
@@ -470,11 +474,11 @@ Both, the signature checks during secure DFU, as well as those during secure boo
 The function nrf_dfu_validation_signature_check() is located in ~secure_bootloader_secure_boot\pca10040_ble_debug_optiga\nrf_dfu_validation.c~.
 
 The above validation function calls the signature computation via the ~nrf_crypto~ API.
-In the above project, the OPTIGA implementation for the ~nrf_crypto~ API has been enabled in ~sdk_config.h~, thus the verification is conducted using Trust X.
+In the above project, the OPTIGA™ implementation for the ~nrf_crypto~ API has been enabled in ~sdk_config.h~, thus the verification is conducted using Trust X.
 Additionally, the public verification key is not part of the bootloader firmware, but stored securely on Trust X.
 ** LED interference
 When using the Nordic PCA10040 board with the Trust X Shield the LEDs ~BSP_BOARD_LED_1~ and ~BSP_BOARD_LED_2~ must not be used.
-These pins are needed for the correct operation of the OPTIGA Trust X when using the Arduino-compatible Trust X Shield (Version 0.5).
+These pins are needed for the correct operation of the OPTIGA™ Trust X when using the Arduino-compatible Trust X Shield (Version 0.5).
 ** Initialization of Trust X backend is stuck
 **** Observation
 The ~while (!timer_elapsed)~ loop in ~pal_os.c:198~ does not exit.
@@ -483,12 +487,12 @@ The call resulted from the ~optiga_backend_init()~ > ~optiga_util_open_applicati
 The bootloader is doing a ~NVIC_SystemReset~ before the re-initialization of the backend happens.
 The RTC2 could thus be in an undefined state.
 **** Solution
-For secure boot phase, the SoftDevice is not initialized, and thus also not a clock that the OPTIGA PAL relies on.
+For secure boot phase, the SoftDevice is not initialized, and thus also not a clock that the OPTIGA™ PAL relies on.
 Explicitly initialize the clock:
 The PAL uses RTC2 for internal timers.
-To enable this timer the user must ensure that LF clock is running before calling any functions from the OPTIGA libraries or the nrf_crypto backend.
+To enable this timer the user must ensure that LF clock is running before calling any functions from the OPTIGA™ libraries or the nrf_crypto backend.
 #+BEGIN_SRC c
-    // OPTIGA stack needs LF clock for RTC2
+    // OPTIGA™ stack needs LF clock for RTC2
     if (!nrf_clock_lf_is_running())
     {
         nrf_clock_task_trigger(NRF_CLOCK_TASK_LFCLKSTART);
@@ -555,12 +559,12 @@ NORDIC_SDK=NORDIC_SDK=../../../../sdk/nRF5
 **** dfu_public_key.c
 Remove the file =dfu_public_key.c= from the project.
 Instead, include the file ~<ROOT>\fw_bootloader\project\secure_bootloader_secure_boot\pca10040_ble_optiga_debug\dfu_public_key.c~.
-There, the definition of the public key variables is conditionally excluded when the OPTIGA backend is enabled.
+There, the definition of the public key variables is conditionally excluded when the OPTIGA™ backend is enabled.
 **** nrf_bootloader_dfu_timers.c
 First, exclude existing file from the build:
 In SES project explorer, navigate to Solution > Project > nRF_Bootloader > nrf_bootloader_dfu_timers.c > Right click > Exclude From Build.
 Include the modified file ~<ROOT>\fw_bootloader\project\secure_bootloader_secure_boot\pca10040_ble_optiga_debug\nrf_bootloader_dfu_timers.c~.
-The modification in the file configures RTC1 to be used for the bootloader, because RTC2 is used by the OPTIGA PAL.
+The modification in the file configures RTC1 to be used for the bootloader, because RTC2 is used by the OPTIGA™ PAL.
 **** nrf_dfu_validation.c
 Exclude the existing file from the build:
 In SES project explorer, navigate to Solution > Project > nRF_DFU > nrf_dfu_validation.c > Right click > Exclude From Build.
@@ -696,7 +700,7 @@ The ~BOOTLOADER_PUB_KEY_OID~ specifies the object ID of the Trust X data object 
 The OID value must correspond to the OID value used in the personalization application, where this public-key certificate is stored in the respective slot.
 
 Due to EasyDMA restrictions on nRF52832 devices, it is necessary to set a project-level define =DL_MAX_FRAME_SIZE=250= to use the nrf5x Platform Abstraction Layer (PAL).
-This PAL is required by the Trust X host library, which is used by the OPTIGA backend implementation.
+This PAL is required by the Trust X host library, which is used by the OPTIGA™ backend implementation.
 *** SDK configuration (sdk_config.h)
 Modify the following values in the ~sdk_config.h~:
 #+BEGIN_SRC c
@@ -1020,7 +1024,7 @@ with
 // </e>
 #+END_SRC
 *** Linker settings
-The OPTIGA library allocates memory on the heap. For proper operation, the heap should have a size of 8,192 Bytes or larger.
+The OPTIGA™ library allocates memory on the heap. For proper operation, the heap should have a size of 8,192 Bytes or larger.
 Configure the heap size at Project > Right click > Common > Runtime Memory Area > Heap Size.
 *** Section placement macros
 The placement of memory sections is defined by the XML file ~flash_placement.xml~, referenced from Project > Right click > Common > Linker > Section Placement File.
