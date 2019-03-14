@@ -1,0 +1,1034 @@
+#+SECUREDFU: -*- mode:org -*-
+#+TITLE: Secure device firmware update (DFU) and secure boot using OPTIGA Trust X on Nordic nRF52 series
+#+AUTHOR: Christian Lesjak, Infineon Technologies
+#+OPTIONS: ^:nil
+#+SETUPFILE: https://fniessen.github.io/org-html-themes/setup/theme-readtheorg.setup
+
+* Table of Contents                                                     :TOC:QUOTE:
+#+BEGIN_QUOTE
+- *[[#introduction][Introduction]]*
+  - [[#hardware_reqs][Required hardware (boards) and software (libraries)]]
+  - [[#development_env][Development environment]]
+- *[[#key_management][Key management: preparing the developer’s private DFU key and public-key certificate]]*
+  - [[#][Generate the developer’s private key, using Nordic tools]]
+  - [[#][Create a self-signed developer certificate]]
+  - [[#][Output the certificate as C-array formatted string]]
+- *[[#personalization][Trust X personalization: installing the developer certificate onto Trust X]]*
+  - [[#][Implement personalization application]]
+  - [[#][About metadata]]
+  - [[#][Copy developer certificate into personalization application]]
+  - [[#][Compile and program the application]]
+- *[[#application][Application: preparing a dummy application for testing]]*
+  - [[#][Preparing the project and compiling the firmware binary]]
+  - [[#][Preparing the update packages (ZIP files)]]
+- *[[#bootloader][Bootloader: prepare a Trust X based bootloader]]*
+  - [[#][Add Trust X dependencies to Nordic SDK bootloade]]
+  - [[#][Testing]]
+- *[[#prepare_fw_image][Prepare complete firmware binary]]*
+  - [[#][Create a bootloader settings page]]
+  - [[#][Merge all firmware binaries into one]]
+  - [[#][Programming the merged firmware binary]]
+  - [[#][Conducting a firmware update]]
+- *[[#testing_secure_boot][Testing secure boot]]*
+  - [[#][Modify the signed application and reset the device]]
+  - [[#][Add a debug statement to highlight when Trust X is used during the process]]
+- *[[#dfu_without_dsecure_boot][Using Secure DFU without Secure Boot]]*
+- *[[#faq][FAQ and troubleshooting]]*
+  - [[#][Add a debug statement to highlight when Trust X is used during the process]]
+  - [[#][LED interference]]
+  - [[#][Initialization of Trust X backend is stuck]]
+  - [[#][Logging debug output of bootloader and application]]
+  - [[#][Optimizing bootloader size]]
+  - [[#][What is nrf_dfu_validation_post_external_app_execute for?]]
+  - [[#][Where in memory is the master boot record located?]]
+  - [[#][Error during DFU procedure (result code 5 - invalid object)]]
+  - [[#][Error 0x80001003]]
+- *[[#][Appendix]]*
+#+END_QUOTE
+
+* Introduction
+This guide describes how to set-up and conduct secure device firmware update (DFU) and secure boot on Nordic nRF52 using Infineon hardware-based security.
+The overall tooling and setup process can appear quite complex, and the individual steps have dependencies on other steps.
+But once understood, Nordic SDK and Trust X provide an easy, production-quality and exhaustive solution to introduce secure DFU and secure boot into your product.
+All the steps are illustrated and summarized here:
+[[file:./doc/dfu-full-flow.png]]
+
+** Required hardware (boards) and software (libraries)
+This guide requires a *target system* (your device) composed of:
+- Nordic nRF52832 development kit. The guide can in principle also be used with other Nordic boards, but the supplied project files are configured to work with nRF52832 out of the box.
+- OPTIGA Trust X Shield with an OPTIGA Trust X (firmware version 1.20.1048 or newer)
+The software development framework is composed of:
+- Infineon OPTIGA Trust X software framework, located on [[https://github.com/Infineon/optiga-trust-x][Github]].
+- Nordic nRF5 SDK, version 15.3, located on [[https://www.nordicsemi.com/Software-and-Tools/Software/nRF5-SDK][Nordic's website]].
+- This support package, with the following folder structure:
+  - fw_app: Application project, binaries and update packages
+  - fw_bootloader: Bootloader project and hex binary
+  - fw_bootloader-settings-page: pre-generated bootloader settings page
+  - fw_merged: Combined hex files containing application, bootloader, settings page and SoftDevice
+  - fw_perso: Personalization application project
+  - fw_softdevice: Bluetooth SoftDevice
+  - key: Cryptographic credentials for firmware update signing
+  - pyenv: Location of virtual Python environment (recommended)
+  - sdk: Location of external SDKs necessary to compile the firmware projects
+  - tools: scripts, configuration files, and executables
+Not all directories are already populated.
+Some 3rd party tools need to be downloaded separately and placed into the respective folders.
+All paths mentioned in this guide are relative to the root of this repository, if not indicated otherwise.
+** Development environment
+*** Segger Embedded Studio (SES)
+This guides is written for *Segger Embedded Studio* to configure and compile the provided project files.
+SES is free to use for Nordic customers, and available via [[https://www.nordicsemi.com/Software-and-Tools/Development-Tools/Segger-Embedded-Studio][Nordic's website]].
+*** Nordic nRF Connect for Desktop
+Nordic's *nRF Connect for Desktop*, is available at [[https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Connect-for-desktop][Nordic's website]].
+*** Nordic nRF5x Command Line Tools
+The *nRF5x Command Line Tools* contain (among others) the following required tools: =mergehex=, =nrfjprog=.
+They are typically installed in ~C:\Program Files (x86)\Nordic Semiconductor\nrf5x\bin~ directory.
+Obtain the complete package from [[https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF5-Command-Line-Tools][Nordic's website]].
+*** Nordic nrfutil
+The Nordic *command line tool =nrfutil=* has to be installed in your Python environment.
+The Nordic tools require Python *2*, thus install the latest version of Python 2.7.
+This guide assumes a virtual python environment, located in ~pyenv~.
+If you are on Windows, and your Python is installed in =C:\Python27\=, create and activate your virtual environment as follows (using PowerShell):
+#+BEGIN_SRC
+C:\Python27\Scripts\virtualenv.exe pyvenv
+.\pyvenv\Scripts\activate.ps1
+#+END_SRC
+Install ~nrfutil~ with the following command:
+#+BEGIN_SRC
+pip install nrfutil
+#+END_SRC
+*** OpenSSL
+*OpenSSL* is a powerful toolkit for cryptography and public key management.
+OpenSSL in binary form can be obtained via [[http://wiki.overbyte.eu/wiki/index.php/ICS_Download#Download_OpenSSL_Binaries_.28required_for_SSL-enabled_components.29][here]].
+*** OPTIGA tools python script
+This small Python script =bin2chex.py= converts any (binary) file into a string formatted as a C array initializer.
+* Key management: preparing the developer's private DFU key and public-key certificate
+The security in secure firmware update and secure boot is based on public-key cryptography.
+Thus, a corresponding key pair needs to be generated, and the public verification key distributed to devices.
+This section explains how to obtain the keys.
+** Generate the developer's private key, using Nordic tools
+Execute the following command:
+#+BEGIN_SRC
+nrfutil.exe keys generate .\key\developer_key.private.pem
+#+END_SRC
+*** Important note on private key protection
+This private key must be strongly protected:
+- from unauthorized access - otherwise illicit firmware images can be signed with the key.
+- from loss - without access to the private key, no new firmware updates can be signed and thus installed on devices out in the field.
+** Create a self-signed developer certificate
+Using OpenSSL, create a self-signed developer certificate that contains the developer's public key.
+The certificate is signed with the private key of the developer.
+#+BEGIN_SRC
+openssl.exe req -x509 -key .\key\developer_key.private.pem -extensions v3_req -out .\key\developer_key.cert.der -outform DER -config .\tools\openssl.cnf -sha256 -subj '/CN=Developer' -days 10000
+#+END_SRC
+The result is the file =developer_key.cert.der=, which contains the developer's public key, wrapped inside a self-signed X.509 certificate.
+The certificate is encoded in DER format.
+To compile the certificate into a firmware binary, it needs to be converted into a C-style array that can be inserted into a C source file.
+** Output the certificate as C-array formatted string
+Use the Python script ~bin2chex.py~ to get the certificate printed as a C-array string:
+#+BEGIN_SRC
+python.exe .\tools\bin2chex.py -f .\key\developer_key.cert.der
+#+END_SRC
+* Trust X personalization: installing the developer certificate onto Trust X
+The public verification key (contained in the public-key certificate) needs to be saved to Trust X, in order to serve as a trust anchor for DFU and boot validation.
+This section explains how to create an application that writes the data to Trust X, and then protects it by locking it from future modification.
+** Implement personalization application
+The SES project for the personalization firmware is located in ~fw_perso\ses\pca10040\s132\ses\perso_pca10040_s132.emProject~.
+** About metadata
+Trust X provides storage slots for several data objects.
+These data objects can store secret keys, public-key certificates, or general-purpose data.
+Access conditions must be fulfilled to access or use a data object.
+[[./doc/trustx-objects.png]]
+*** Access types
+There are four access types.
+- *RD*: reading a data or key object by an external command, e.g., ~GetDataObject()~
+- *CHA*: changing (writing or flushing) a data or key object by an external command, e.g., ~SetDataObject()~
+- *DEL*: deleting a data or key object by an external command (for Trust X1, there is currently no such command available)
+- *EXE*: utilizing a data or key object implicitly by executing a complex command, e.g., ~CalcSign()~ or ~GenKeyPair()~.
+*** Access conditions
+- *ALW* = 0x00 (1 B): the action is always possible and can be performed without restrictions
+- *NEV* = 0xFF (1 B): the action is never possible and can only be performed internally
+- *LcsG(X) = 0x70 (1 B) | qualifier (1 B) | reference (1 B)*: the action is only possible in case the *global* life cycle status meets the condition given by qualifier and reference.
+- *LcsA(X) = 0xE0 (1 B) | qualifier (1 B) | reference (1 B)*: the action is only possible in case the *application* life cycle status meets the condition given by qualifier and reference.
+- *LcsO(X) = 0xE1 (1 B) | qualifier (1 B) | reference (1 B)*: the action is only possible in case the *data* object life cycle status meets the condition given by qualifier and reference.
+**** Qualifiers
+| Operator     | Symbol     | Value (1 B) |
+|--------------+------------+-------------|
+| equal        | ~==~       |        0xFA |
+| greater than | ~>~        |        0xFB |
+| less than    | ~<~        |        0xFC |
+| logical and  | ~&&~       |        0xFD |
+| logical or   | \vert\vert |        0xFE |
+|--------------|------------|-------------|
+**** Reference values for LcsG/LcsA/LcsO
+#+BEGIN_SRC
+ Bit                State desription
+ 7 6 5 4  3 2 1 0 
+ 0 0 0 0  x x x x   RFU
+ 0 0 0 0  0 0 0 1   Creation state "cr" = 0x01
+ 0 0 0 0  0 0 1 1   Initialization "in" = 0x03
+ 0 0 0 0  0 1 1 1   Operational    "op" = 0x07
+ 0 0 0 0  1 1 1 1   Termination    "te" = 0x0F
+#+END_SRC
+**** Tags for TLVs
+TODO: check Table 37 in SRM.
+**** Example
+#+BEGIN_SRC
+20 11 c0 01 01 c4 01 64 c5 01 64 d0 03 e1 fc 04 d1 01 00
+20 11                                                      Metadata constructed TLV object; max metadata size is 0x11 = 17 bytes
+      c0 01 01                                             LcsO (object life cycle) = creation (cr)
+               c4 01 64                                    max size of the data object is 0x64 = 100 bytes
+                        c5 01 64                           used size of the data object 0x64 = 100 bytes
+                                 d0 03 e1 fc 04            Change access condition descriptor; 
+                                                             LcsO [e1] < [fc] 4 [value] == "object can only be changed if if creation or init state"
+                                                             (that is LcsO is either initialization (in) or creation (cr) state)
+                                                d1 01 00   read access condition; always (ALW)
+#+END_SRC
+** Copy developer certificate into personalization application
+The project contains a C module =ifx_optiga_perso_dfu.c=, which declares and defines an array that contains the entire developer certificate.
+Locate the variable 
+#+BEGIN_SRC
+static const uint8_t SECURE_DFU_BOOT_CERTIFICATE[]
+#+END_SRC
+and copy the C-array formatted string from above.
+
+The application also verifies if the certificate was correctly personalized.
+This verification steps is done in ~ifx_optiga_perso_dfu.c~, in function ~ifx_optiga_perso_dfu_verify()~.
+You need to compute a signature that matches your private key, in order for this check to succeed.
+The instructions are listed in the function's comment block.
+If you want to skip this step, comment out the verification step and always return ~true~.
+** Compile and program the application
+Compile and link the application, using SES.
+Connect the target system and program the application onto the nRF52832.
+Run the application once to conduct the personalization of Trust X.
+During personalization, the developer certificate is transfer to Trust X and stored safely in the non-volatile memory of Trust X.
+From now on, it can be used to verify digital signatures that were computed using the developer's private key.
+* Application: preparing a dummy application for testing
+** Preparing the project and compiling the firmware binary
+One important aspect when preparing the application and the bootloader is to properly and explicitly specify the respective flash sizes and locations.
+The relevant project-level settings are ~FLASH_SIZE~ and ~FLASH_START~ for each project, as well as ~NRF_DFU_APP_DATA_AREA_SIZE~ for the application project.
+The following figure shows the memory layout as it is used in the provided bootloader and application:
+[[./doc/memory-layout.png]]
+
+To demonstrate and test the DFU procedure, at least two application firmware images need to be prepared, to simulate two distinct /versions/ of the application.
+A dummy SES project for the application is located in ~secure-dfu-boot\fw_app\ses\dummy_app\pca10040\s132\ses\dummy_app_pca10040_s132.emProject~.
+Open the ~main.c~ and locate the infinite ~while(1)~-loop at the end of the ~main(void)~ function.
+Modify the ~NRF_LOG_INFO()~ statement to print ~Running application Version 1~.
+Compile and link the application, using SES.
+The resulting firmware binary is placed in ~secure-dfu-boot\fw_app\ses\dummy_app\pca10040\s132\ses\Output\Debug\Exe\dummy_app_pca10040_s132.hex~.
+Copy the hex file ~secure-dfu-boot\fw_app\ses\pca10040\s132\ses\Output\Release\Exe\dummy_app_pca10040_s132.hex~ to secure-dfu-boot\fw_app\hex\~ and rename it to ~v1.hex~.
+Then, modify the ~NRF_LOG_INFO()~ statement again, to print ~Version 2~ instead.
+Compile the binary, and copy the resulting hex file, and rename it to ~v2.hex~.
+Repeat the procedure a few more times to have 5 versions of your application, named ~v1.hex~ to ~v5.hex~.
+** Preparing the update packages (ZIP files)
+The application binaries need to be packaged into update package, composed of the init packet and the firmware binary.
+The following command create a firmware package that contains a new application binary.
+#+BEGIN_SRC
+nrfutil pkg generate --sd-req 0xB7 --application .\fw_app\hex\v1.hex --application-version 1 --app-boot-validation VALIDATE_ECDSA_P256_SHA256 --hw-version 52 --key-file .\key\developer_key.private.pem .\fw_app\zip_sec-boot\v1.zip
+#+END_SRC
+~--sd-req 0xB7~ defines the requirement SoftDevice version. Use the command ~nrfutil pkg generate --help~ to obtain a list of possible firmware IDs.
+~--hw-version 52~ refers to the hardware, with 52 meaning nRF52832, and 52840 meaning nRF52840.
+~--application-version-version X~ specifies the version of the application and is used to prevent downgrades (if enabled in bootloader's ~sdk_config.h~).
+Repeat the above command four more times, to create also update packages for versions 2 throughout 5.
+Note, that you have to not only change the name of the hex file and the zip files, but also the ~--application-version~ parameter to 2, 3, 4, and 5 respectively.
+
+Print the content of a zip package using the command
+#+BEGIN_SRC
+nrfutil pkg display .\fw_app\zip_sec-boot\v1.zip
+#+END_SRC
+The output looks like the following:
+#+BEGIN_SRC
+DFU Package: <.\fw_app\zip_sec-boot\v1.zip>:
+|
+|- Image count: 1
+|
+|- Image #0:
+   |- Type: application
+   |- Image file: v1.bin
+   |- Init packet file: v1.dat
+      |
+      |- op_code: INIT
+      |- signature_type: ECDSA_P256_SHA256
+      |- signature (little-endian): afcfdb3870f21a79b3123142fad752a4c13a913960be47df5f30344e016ac56007ab097b4dd8610a5a1c0b4816ecc3fc1774f097512fcb71eba93572378c3fed
+      |
+      |- fw_version: 0x00000001 (1)
+      |- hw_version 0x00000034 (52)
+      |- sd_req: 0xB7
+      |- type: APPLICATION
+      |- sd_size: 0
+      |- bl_size: 0
+      |- app_size: 20140
+      |
+      |- hash_type: SHA256
+      |- hash (little-endian): 296e5aa0c034fb3e7bb67bd3003dbabf943850296e4f52619b3b0fe676a04172
+      |
+      |- boot_validation_type: ['VALIDATE_ECDSA_P256_SHA256']
+      |- boot_validation_signature (little-endian): ['3b6288a32dd8e4a55f85c6de7a7c22699add9de0013d62e73b6e9f039d4022a622483831fe3f3d6cf0397e209d211bfc45de02ca8a87424f7d4a0a4bc4b5f4f4']
+      |
+      |- is_debug: False
+#+END_SRC
+* Bootloader: prepare a Trust X based bootloader
+The bootloader is based on the Nordic SDK 15.3 example project ~sdk\nRF5\examples\dfu\secure_bootloader\pca10040_ble_debug\ses\secure_bootloader_ble_s132_pca10040_debug.emProject~.
+Nordic explains the [[https://www.nordicsemi.com/DocLib/Content/SDK_Doc/nRF5_SDK/v15-2-0/ble_sdk_app_dfu_bootloader][LE Secure DFU Bootloader]] in its online documentation.
+** Add Trust X dependencies to Nordic SDK bootloader
+:PROPERTIES:
+:CUSTOM_ID: section-add-trustx-deps
+:END:
+A ready-to-use bootloader project for Trust X is located in ~fw_bootloader\project\pca10040_ble_debug_optiga\ses\secure_bootloader_secure_boot_ble_s132_pca10040_debug.emProject~.
+It is based on the above Nordic SDK example.
+The modifications that have been conducted to enable Trust X for signature verification during secure DFU are explained in the appendix.
+You can go ahead with the bootloader as prepared.
+** Testing
+*** Program the bootloader
+ To test the bootloader, compile it with SES.
+ Then, connect a Nordic nRF52832 development board, with OPTIGA Trust X shield plugged-in on top, to the computer.
+ To make sure the flash of the nRF52832 is completely erased, first connect J-Link (Target > Connect J-Link), and erase the flash (Target > Erase All).
+ Then, program the application and start debuggin (Debug > Go; or F5).
+*** Conduct a secure firmware update
+Use a second Nordic development board and connect it to your PC.
+Run nRF Connect and launch the app *Bluetooth Low Engergy*.
+If it is not available in the list, install it via *Add/remove apps*.
+
+The app will use your second Nordic board to scan for Bluetooth devices, and to conduct the secure DFU.
+Thus, select the board and confirm the installation of the required firmware.
+Start the scan process, and look for your bootloader advertising as =DfuTarg=.
+Connect to it, and the device will be shown on the screen.
+Use the /Start Secure DFU/ button to open a dialog where to select the desired firmware update package.
+Point to one of the ZIP files generated before, and start the DFU process.
+
+If the process completes successfully, the bootloader has successfully verified the firmware update using Trust X.
+* Prepare complete firmware binary
+In the previous part, the first version of the appliction binary was installed via the secure DFU procedure.
+However, in practice, the device should already be pre-programmed with the first application version.
+
+Therefore, we need to generate a full firmware binary, which includes:
+ - Application
+ - SoftDevice
+ - Bootloader
+ - Bootloader settings page
+The tool =mergehex.exe= can combine multiple binaries into a single hex file.
+** Create a bootloader settings page
+To create the bootloader settings page, use =nrfutil=:
+#+BEGIN_SRC
+nrfutil settings generate --family NRF52 --application .\fw_app\hex\v1.hex --application-version 1 --app-boot-validation VALIDATE_ECDSA_P256_SHA256 --sd-boot-validation VALIDATE_ECDSA_P256_SHA256 --softdevice .\fw_softdevice\s132_nrf52_6.1.1_softdevice.hex --bootloader-version 1 --bl-settings-version 2 --key-file .\key\developer_key.private.pem .\fw_bootloader-settings-page\bls.hex
+#+END_SRC
+The option =--bl-settings-version= must be set to 2 (it is not related to the application version, but to its contents).
+For nRF52832, specify the =--family= option =NRF52=, for nRF52840 the corresponding value is =NRF52840=.
+The above string splits the command over multiple lines.
+When pasting it into a console prompt, remove the line breaks to execute it as a single command.
+
+The output will look similar to:
+#+BEGIN_SRC
+  Generated Bootloader DFU settings .hex file and stored it in: .\fw_bootloader-settings-page\bls.hex
+
+  Bootloader DFU Settings:
+  * File:                     .\fw_bootloader-settings-page\bls.hex
+  * Family:                   nRF52
+  * Start Address:            0x0007F000
+  * CRC:                      0xDC29D267
+  * Settings Version:         0x00000002 (2)
+  * App Version:              0x00000001 (1)
+  * Bootloader Version:       0x00000001 (1)
+  * Bank Layout:              0x00000000
+  * Current Bank:             0x00000000
+  * Application Size:         0x00004EAC (20140 bytes)
+  * Application CRC:          0x4EC09D0C
+  * Bank0 Bank Code:          0x00000001
+  * Softdevice Size:          0x00024150 (147792 bytes)
+  * Boot Validation CRC:      0x2FF516DA
+  * SD Boot Validation Type:  0x00000003 (3)
+  * App Boot Validation Type: 0x00000003 (3)
+#+END_SRC
+** Merge all firmware binaries into one
+The four firmware binaries need to be merged into a single hex file.
+Since =mergehex= only supports merging three files at once, two steps need to be conducted.
+First, merge bootloader and bootloader settings page:
+[fn::The line breaks in the command are only to increase readability, remove them before pasting the command into a console window]
+#+BEGIN_SRC
+mergehex.exe 
+    -m 
+        .\fw_bootloader-settings-page\bls.hex 
+        .\fw_bootloader\hex\secure_bootloader_secure_boot_ble_s132_pca10040_debug.hex
+    -o  .\fw_merged\bl+bls.hex
+#+END_SRC
+Second, merge previously merged bootloader and settings with SoftDevice and application:
+#+BEGIN_SRC
+mergehex.exe 
+    -m 
+        .\fw_merged\bl+bls.hex 
+        .\fw_softdevice\s132_nrf52_6.1.1_softdevice.hex 
+        .\fw_app\hex\v1.hex 
+    -o  .\fw_merged\bl+bls+sd+app_v1.hex
+#+END_SRC
+** Programming the merged firmware binary
+For programming, use the Nordic tool =nrfjprog=.
+First, erase user available code and UICR flash areas:
+#+BEGIN_SRC 
+nrfjprog.exe -e
+#+END_SRC
+Then, program the merged hex binary:
+#+BEGIN_SRC 
+nrfjprog.exe --program .\fw_merged\bl+bls+sd+app_v1.hex
+#+END_SRC
+Finally, reset your device:
+#+BEGIN_SRC
+nrfjprog.exe -r
+#+END_SRC
+The bootloader will start up your application.
+To bring the device back into DFU mode, hold button 4 while pressing the reset button.
+Both buttons are located on the nRF52 development board.
+** Conducting a firmware update
+After the merged firmware binary was programmed, the application version 1 is running on the development kit hardware.
+
+To bring the device back into DFU mode, hold button 4 while resetting the devices with the BOOT/RESET button.
+The device will immediately enter DFU mode, and can be scanned for with the nRF Connect tool.
+It will advertise itself as "DfuTarg".
+Connect to it, and click the DFU button.
+Select ~fw_app\zip\v1.zip~ and install a new application version.
+An error will appear, explaining that the firmware version is not accepted by the bootloader (~FW_VERSION_FAILURE~).
+This happens because the initial, merged firmware that we programmed using ~nrfjprog.exe~, already is version 1, and the bootloader is configured to accept only strictly higher versions.
+
+Thus, select ~fw_app\zip\v2.zip~ and install a new application version - this time successfully.
+** Testing secure boot
+There are two different ways how the effect of secure boot can be observed.
+*** Modify the signed application and reset the device
+Flash version 2 of firmware binary a.
+Reset the device multiple times, and observe that it always boots into the application.
+Then, use ~nrfjprog.exe~ to replace the application with another, currently not installed version, e.g., version 5:
+#+BEGIN_SRC
+nrfjprog.exe --family nrf52 --program .\fw_app\hex\v5.hex --sectorerase
+#+END_SRC
+If the device reboots now (e.g., using ~IF BOOT/RESET~ button on the Nordic DK), the secure boot bootloader will detect that the firmware was modified externally, without proper signature update in the settings page.
+As a result, the application will not be executed, but the bootloader will enter DFU mode again.
+*** Add a debug statement to highlight when Trust X is used during the process
+Alternatively, one can add a debug statement to observe when the signature verification steps is conducted using Trust X, to see the secure boot in action.
+#+BEGIN_SRC diff
+diff --git a/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdsa.c b/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdsa.c
+index 34ba894..ed98474 100644
+--- a/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdsa.c
++++ b/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdsa.c
+@@ -50,6 +50,8 @@
+ #include "nrf_crypto_ecc.h"
+ #include "nrf_crypto_ecdsa.h"
+
++#include "nrf_log.h"
++
+ /*lint -save -e????*/
+ #include "optiga/optiga_crypt.h"
+ /*lint -restore*/
+@@ -136,6 +138,9 @@ ret_code_t nrf_crypto_backend_optiga_verify(
+                                         &oid);
+     }
+
++    NRF_LOG_ERROR("OPTIGA: signature verified using OID=0x%x, result=0x%x",
++        oid, res);
++
+     // consider everything that is not success a signature failure
+     if (res != OPTIGA_LIB_SUCCESS)
+     {
+#+END_SRC
+* Using Secure DFU without Secure Boot
+To NOT use the secure boot feature, the boot validation method needs to be changed, and the requirement for a signed application in the bootloader needs to be softened.
+
+When creating the DFU update ZIP packages, use the following command, which does not add the signature-based boot validation feature, but a simple CRC check instead:
+#+BEGIN_SRC
+nrfutil pkg generate --sd-req 0xB7 --application .\fw_app\hex\v1.hex --application-version 1 --app-boot-validation VALIDATE_GENERATED_CRC --hw-version 52 --key-file .\key\developer_key.private.pem .\fw_app\zip_dfu-only\v1.zip
+#+END_SRC
+
+Modify the bootloader project: change the ~NRF_BL_APP_SIGNATURE_CHECK_REQUIRED~ from ~1~ to ~0~.
+~NRF_BL_APP_SIGNATURE_CHECK_REQUIRED~ tells the bootloader to perform the signature check on the application.
+The enabled flag requires the signature to be sent in the init packet.
+
+Then re-compile the bootloader, and re-generate the bootloader settings page (note the removed signature requirement for the boot validation, and the lack of need for a key to sign the application):
+#+BEGIN_SRC
+nrfutil settings generate
+    --family NRF52
+    --application .\fw_app\hex\v1.hex
+    --application-version 1
+    --app-boot-validation VALIDATE_GENERATED_CRC
+    --sd-boot-validation VALIDATE_GENERATED_CRC
+    --softdevice .\fw_softdevice\s132_nrf52_6.1.1_softdevice.hex
+    --bootloader-version 1
+    --bl-settings-version 2
+    .\fw_bootloader-settings-page\bls.hex
+#+END_SRC
+
+Finally, merge again the hex files using ~mergehex~, and program the merged application using ~nrfjprog~.
+
+* Frequent questions and troubleshooting
+** Where is the signature check conducted?
+Both, the signature checks during secure DFU, as well as those during secure boot, call the function ~nrf_dfu_validation_signature_check()~.
+The function nrf_dfu_validation_signature_check() is located in ~secure_bootloader_secure_boot\pca10040_ble_debug_optiga\nrf_dfu_validation.c~.
+
+The above validation function calls the signature computation via the ~nrf_crypto~ API.
+In the above project, the OPTIGA implementation for the ~nrf_crypto~ API has been enabled in ~sdk_config.h~, thus the verification is conducted using Trust X.
+Additionally, the public verification key is not part of the bootloader firmware, but stored securely on Trust X.
+** LED interference
+When using the Nordic PCA10040 board with the Trust X Shield the LEDs ~BSP_BOARD_LED_1~ and ~BSP_BOARD_LED_2~ must not be used.
+These pins are needed for the correct operation of the OPTIGA Trust X when using the Arduino-compatible Trust X Shield (Version 0.5).
+** Initialization of Trust X backend is stuck
+**** Observation
+The ~while (!timer_elapsed)~ loop in ~pal_os.c:198~ does not exit.
+The call resulted from the ~optiga_backend_init()~ > ~optiga_util_open_application()~ > ~pal_os_timer_delay_in_milliseconds()~.
+**** Investigation
+The bootloader is doing a ~NVIC_SystemReset~ before the re-initialization of the backend happens.
+The RTC2 could thus be in an undefined state.
+**** Solution
+For secure boot phase, the SoftDevice is not initialized, and thus also not a clock that the OPTIGA PAL relies on.
+Explicitly initialize the clock:
+The PAL uses RTC2 for internal timers.
+To enable this timer the user must ensure that LF clock is running before calling any functions from the OPTIGA libraries or the nrf_crypto backend.
+#+BEGIN_SRC c
+    // OPTIGA stack needs LF clock for RTC2
+    if (!nrf_clock_lf_is_running())
+    {
+        nrf_clock_task_trigger(NRF_CLOCK_TASK_LFCLKSTART);
+    }
+#+END_SRC
+** Logging debug output of bootloader and application
+The RTT client can only connect to either the bootloader's logger, or to the application's logger.
+Thus, there are two workarounds:
+- Use the serial log backend
+- Use the following approach to get RTT to work: [[https://devzone.nordicsemi.com/f/nordic-q-a/30310/easy-way-to-merge-bootloader-and-application-rtt-output][Easy way to merge bootloader and application RTT output (accessed 2019-02-05)]]
+** Optimizing bootloader size
+*** Forcing a warning if bootloader size exceeds the specified parameters
+Nordic's documentation [fn::[https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v15.0.0%2Findex.html 2019-02-12]] explains:
+
+SES will not detect whether the debug bootloader is too large, instead it will place the code in the MBR params page. To make SES detect this, add the following line in flash_placement.xml:
+#+BEGIN_SRC xml
+   <ProgramSection load="no" name=".reserved_flash_tail" start="$(FLASH_START)+$(FLASH_SIZE)" size="$(FLASH_PH_SIZE)-$(FLASH_START)-$(FLASH_SIZE)" />
+#+END_SRC
+Place this line immediately after:
+#+BEGIN_SRC xml
+   <ProgramSection alignment="4" load="Yes" runin=".tdata_run" name=".tdata" />
+#+END_SRC
+The production bootloader is not affected by this issue.
+*** Determining the minimum possible bootloader size
+Two variables describe the bootloader size:
+- ~FLASH_START~
+- ~FLASH_SIZE~
+If the actual compiled ROM size exceeds the above specified ~FLASH_SIZE~, the build process will return an error (given the warning explained above is enabled).
+The maxmium ~FLASH_SIZE~ value that was test with Trust X enabled bootloader for secure boot and secure DFU is ~FLASH_START=0x6F000;FLASH_SIZE=0x0F000~.
+** What is nrf_dfu_validation_post_external_app_execute for?
+The nrf_dfu_validation_post_external_app_execute() function is only relevant if you use external apps (applications not intended for this device, but which should be forwarded to another device down the line). In this case, it gives a possibility for extra validation of a received external application. You can use an empty implementation or remove the call to it from postvalidate() if you don’t see the need for it.
+It is not used if you disable ~NRF_DFU_SUPPORTS_EXTERNAL_APP~ in ~sdk_config.h~.
+** Where in memory is the master boot record located?
+The master boot record (MBR) is Nordic proprietary and the source code is not distributed publicly by Nordic.
+The MBR is part of the SoftDevice binary file.
+In memory, the MBR is located from ~0x0000 0000~ to ~0x0000 FFFF~.
+** Error during DFU procedure (result code 5 - invalid object)
+*** Observation
+2 or 3 seconds after initiating the download of the update ZIP package to a device in DFU mode, using nRF Connect, an error occurs.
+The error text says:
+#+BEGIN_SRC
+When writing 'EXECUTE' command to Control Point Characteristic of DFU Target: 
+Operation code 4 (EXECUTE) failed on DFU Target. Result code 5 (INVALID_OBJECT)
+#+END_SRC
+*** Solution
+One possible for this solution could be incorrect memory sizes for bootloader and/or the applicatoin.
+Please consult the memory layout illustrated in this guide, and make sure to have no overlap between bootloader and application.
+** Error 0x80001003
+*** Observation
+A Trust X host library functions returns the status code 0x8001003 during the signature verification.
+*** Solution
+The error is likely caused by not having increased the heap size to 8192 Byte.
+
+* Appendix
+** Modifications to enabled Trust X in bootloader
+*** Housekeeping
+In the file ~secure_bootloader_ble_s132_pca10040.emProject~, replace all occurrences of ~../../../../..~ with the macro ~$(NORDIC_SDK)~.
+Next, define two new project macros under Project > Right click > Options > Common > Build > Project macros:
+#+BEGIN_SRC
+INFINEON_LIB=../../../../sdk/optiga-trust-x
+NORDIC_SDK=NORDIC_SDK=../../../../sdk/nRF5
+#+END_SRC
+*** Modifying functionality
+**** dfu_public_key.c
+Remove the file =dfu_public_key.c= from the project.
+Instead, include the file ~<ROOT>\fw_bootloader\project\secure_bootloader_secure_boot\pca10040_ble_optiga_debug\dfu_public_key.c~.
+There, the definition of the public key variables is conditionally excluded when the OPTIGA backend is enabled.
+**** nrf_bootloader_dfu_timers.c
+First, exclude existing file from the build:
+In SES project explorer, navigate to Solution > Project > nRF_Bootloader > nrf_bootloader_dfu_timers.c > Right click > Exclude From Build.
+Include the modified file ~<ROOT>\fw_bootloader\project\secure_bootloader_secure_boot\pca10040_ble_optiga_debug\nrf_bootloader_dfu_timers.c~.
+The modification in the file configures RTC1 to be used for the bootloader, because RTC2 is used by the OPTIGA PAL.
+**** nrf_dfu_validation.c
+Exclude the existing file from the build:
+In SES project explorer, navigate to Solution > Project > nRF_DFU > nrf_dfu_validation.c > Right click > Exclude From Build.
+Include the modified file ~fw_bootloader\project\secure_bootloader_secure_boot\pca10040_ble_optiga_debug\nrf_dfu_validation_timers.c~.
+The modification introduces a new ~#define BOOTLOADER_PUB_KEY_OID~, and initializes the static variable ~m_public_key~ with this OID, instead of the raw public key data.
+*** OPTIGA-related dependencies
+    Copy the following lines as a "child" to ~<folder Name="Application">~ in the *.emProject file:
+#+BEGIN_SRC xml
+    <folder Name="nRF_Drivers for OPTIGA">
+      <file file_name="$(NORDIC_SDK)/modules/nrfx/drivers/src/nrfx_rtc.c" />
+      <file file_name="$(NORDIC_SDK)/modules/nrfx/drivers/src/nrfx_twi.c" />
+      <file file_name="$(NORDIC_SDK)/modules/nrfx/drivers/src/nrfx_twim.c" />
+      <file file_name="$(NORDIC_SDK)/integration/nrfx/legacy/nrf_drv_twi.c" />
+    </folder>
+    <folder Name="nRF_Libraries for OPTIGA">
+      <file file_name="$(NORDIC_SDK)/components/libraries/pwr_mgmt/nrf_pwr_mgmt.c" />
+      <file file_name="$(NORDIC_SDK)/components/libraries/twi_mngr/nrf_twi_mngr.c" />
+    </folder>
+    <folder Name="Infineon">
+      <folder Name="optiga">
+        <folder Name="cmd">
+          <file file_name="$(INFINEON_LIB)/optiga/cmd/CommandLib.c" />
+        </folder>
+        <folder Name="common">
+          <file file_name="$(INFINEON_LIB)/optiga/common/Logger.c" />
+          <file file_name="$(INFINEON_LIB)/optiga/common/Util.c" />
+        </folder>
+        <folder Name="comms">
+          <file file_name="$(INFINEON_LIB)/optiga/comms/optiga_comms.c" />
+          <folder Name="ifx_i2c">
+            <file file_name="$(INFINEON_LIB)/optiga/comms/ifx_i2c/ifx_i2c.c" />
+            <file file_name="$(INFINEON_LIB)/optiga/comms/ifx_i2c/ifx_i2c_config.c" />
+            <file file_name="$(INFINEON_LIB)/optiga/comms/ifx_i2c/ifx_i2c_data_link_layer.c" />
+            <file file_name="$(INFINEON_LIB)/optiga/comms/ifx_i2c/ifx_i2c_physical_layer.c" />
+            <file file_name="$(INFINEON_LIB)/optiga/comms/ifx_i2c/ifx_i2c_transport_layer.c" />
+          </folder>
+        </folder>
+        <folder Name="crypt">
+          <file file_name="$(INFINEON_LIB)/optiga/crypt/optiga_crypt.c" />
+        </folder>
+        <folder Name="include">
+          <folder Name="optiga">
+            <file file_name="$(INFINEON_LIB)/optiga/include/optiga/CryptoLib.h" />
+            <file file_name="$(INFINEON_LIB)/optiga/include/optiga/optiga_crypt.h" />
+            <file file_name="$(INFINEON_LIB)/optiga/include/optiga/optiga_util.h" />
+            <file file_name="$(INFINEON_LIB)/optiga/include/optiga/Version.h" />
+            <folder Name="cmd">
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/cmd/CommandLib.h" />
+            </folder>
+            <folder Name="common">
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/common/AuthLibSettings.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/common/Datatypes.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/common/ErrorCodes.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/common/Logger.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/common/MemoryMgmt.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/common/Util.h" />
+            </folder>
+            <folder Name="comms">
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/comms/optiga_comms.h" />
+            </folder>
+            <folder Name="ifx_i2c">
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/ifx_i2c/ifx_i2c.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/ifx_i2c/ifx_i2c_config.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/ifx_i2c/ifx_i2c_data_link_layer.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/ifx_i2c/ifx_i2c_physical_layer.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/ifx_i2c/ifx_i2c_transport_layer.h" />
+            </folder>
+            <folder Name="pal">
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/pal/pal.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/pal/pal_gpio.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/pal/pal_i2c.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/pal/pal_ifx_i2c_config.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/pal/pal_os_event.h" />
+              <file file_name="$(INFINEON_LIB)/optiga/include/optiga/pal/pal_os_timer.h" />
+            </folder>
+          </folder>
+        </folder>
+        <folder Name="util">
+          <file file_name="$(INFINEON_LIB)/optiga/util/optiga_util.c" />
+        </folder>
+      </folder>
+      <folder Name="pal">
+        <folder Name="nrf5x">
+          <file file_name="$(INFINEON_LIB)/pal/nrf5x/pal_gpio.c" />
+          <file file_name="$(INFINEON_LIB)/pal/nrf5x/pal_i2c.c" />
+          <file file_name="$(INFINEON_LIB)/pal/nrf5x/pal_ifx_i2c_config.c" />
+          <file file_name="$(INFINEON_LIB)/pal/nrf5x/pal_os.c" />
+          <file file_name="$(INFINEON_LIB)/pal/nrf5x/pal_os_lock.c" />
+          <folder Name="nrf_crypto_backend">
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecc.c" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecc.h" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdh.c" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdh.h" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdsa.c" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_ecdsa.h" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_init.c" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_rng.c" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_rng.h" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_utils.c" />
+            <file file_name="$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend/optiga_backend_utils.h" />
+          </folder>
+        </folder>
+      </folder>
+    </folder>
+#+END_SRC
+*** Update the user include directories
+The most user-friendly way to edit them is to right click the project > Options > Common > Preprocessor > User Include Directories.
+
+Remove the line:
+#+BEGIN_SRC
+$(NORDIC_SDK)/components/libraries/crypto/backend/optiga
+#+END_SRC
+
+Add the lines (make sure there are not spaces after each line!):
+#+BEGIN_SRC
+$(INFINEON_LIB)/optiga/include
+$(INFINEON_LIB)/pal/nrf5x/nrf_crypto_backend
+$(NORDIC_SDK)/components/libraries/mutex
+$(NORDIC_SDK)/components/libraries/timer
+$(NORDIC_SDK)/components/libraries/twi_mngr
+$(NORDIC_SDK)/components/libraries/twi_sensor
+$(NORDIC_SDK)/modules/nrfx/drivers/include
+$(NORDIC_SDK)/integration/nrfx/legacy
+$(NORDIC_SDK)/components/libraries/pwr_mgmt
+#+END_SRC
+*** Preprocessor definitions
+Add the following to preprocessor definitions at Project > Right click > Common > Preprocessor > Preprocessor Definintions.
+#+BEGIN_SRC
+BOOTLOADER_PUB_KEY_OID=0xE0EF
+DL_MAX_FRAME_SIZE=250
+#+END_SRC
+The ~BOOTLOADER_PUB_KEY_OID~ specifies the object ID of the Trust X data object that holds the public key certificate.
+The OID value must correspond to the OID value used in the personalization application, where this public-key certificate is stored in the respective slot.
+
+Due to EasyDMA restrictions on nRF52832 devices, it is necessary to set a project-level define =DL_MAX_FRAME_SIZE=250= to use the nrf5x Platform Abstraction Layer (PAL).
+This PAL is required by the Trust X host library, which is used by the OPTIGA backend implementation.
+*** SDK configuration (sdk_config.h)
+Modify the following values in the ~sdk_config.h~:
+#+BEGIN_SRC c
+NRF_CRYPTO_BACKEND_MICRO_ECC_ENABLED 0
+NRF_CRYPTO_BACKEND_OPTIGA_ENABLED    1
+NRF_CRYPTO_RNG_AUTO_INIT_ENABLED     0
+NRF_QUEUE_ENABLED                    1
+#+END_SRC
+
+Replace the lines
+#+BEGIN_SRC c
+#define NRF_STRERROR_ENABLED 1
+#endif
+#+END_SRC
+with
+#+BEGIN_SRC c
+#define NRF_STRERROR_ENABLED 1
+#endif
+
+// <q> NRF_TWI_MNGR_ENABLED  - nrf_twi_mngr - TWI transaction manager
+ 
+
+#ifndef NRF_TWI_MNGR_ENABLED
+#define NRF_TWI_MNGR_ENABLED 1
+#endif
+
+// <e> NRF_CLOCK_ENABLED - nrf_drv_clock - CLOCK peripheral driver - legacy layer
+//==========================================================
+#ifndef NRF_CLOCK_ENABLED
+#define NRF_CLOCK_ENABLED 1
+#endif
+// <o> CLOCK_CONFIG_LF_SRC  - LF Clock Source
+ 
+// <0=> RC 
+// <1=> XTAL 
+// <2=> Synth 
+// <131073=> External Low Swing 
+// <196609=> External Full Swing 
+
+#ifndef CLOCK_CONFIG_LF_SRC
+#define CLOCK_CONFIG_LF_SRC 1
+#endif
+
+// <o> CLOCK_CONFIG_IRQ_PRIORITY  - Interrupt priority
+ 
+
+// <i> Priorities 0,2 (nRF51) and 0,1,4,5 (nRF52) are reserved for SoftDevice
+// <0=> 0 (highest) 
+// <1=> 1 
+// <2=> 2 
+// <3=> 3 
+// <4=> 4 
+// <5=> 5 
+// <6=> 6 
+// <7=> 7 
+
+#ifndef CLOCK_CONFIG_IRQ_PRIORITY
+#define CLOCK_CONFIG_IRQ_PRIORITY 6
+#endif
+
+// </e>
+
+// <e> RTC_ENABLED - nrf_drv_rtc - RTC peripheral driver - legacy layer
+//==========================================================
+#ifndef RTC_ENABLED
+#define RTC_ENABLED 1
+#endif
+// <o> RTC_DEFAULT_CONFIG_FREQUENCY - Frequency  <16-32768> 
+
+
+#ifndef RTC_DEFAULT_CONFIG_FREQUENCY
+#define RTC_DEFAULT_CONFIG_FREQUENCY 32768
+#endif
+
+// <q> RTC_DEFAULT_CONFIG_RELIABLE  - Ensures safe compare event triggering
+ 
+
+#ifndef RTC_DEFAULT_CONFIG_RELIABLE
+#define RTC_DEFAULT_CONFIG_RELIABLE 0
+#endif
+
+// <o> RTC_DEFAULT_CONFIG_IRQ_PRIORITY  - Interrupt priority
+ 
+
+// <i> Priorities 0,2 (nRF51) and 0,1,4,5 (nRF52) are reserved for SoftDevice
+// <0=> 0 (highest) 
+// <1=> 1 
+// <2=> 2 
+// <3=> 3 
+// <4=> 4 
+// <5=> 5 
+// <6=> 6 
+// <7=> 7 
+
+#ifndef RTC_DEFAULT_CONFIG_IRQ_PRIORITY
+#define RTC_DEFAULT_CONFIG_IRQ_PRIORITY 6
+#endif
+
+// <q> RTC0_ENABLED  - Enable RTC0 instance
+ 
+
+#ifndef RTC0_ENABLED
+#define RTC0_ENABLED 0
+#endif
+
+// <q> RTC1_ENABLED  - Enable RTC1 instance
+ 
+
+#ifndef RTC1_ENABLED
+#define RTC1_ENABLED 0
+#endif
+
+// <q> RTC2_ENABLED  - Enable RTC2 instance
+ 
+
+#ifndef RTC2_ENABLED
+#define RTC2_ENABLED 1
+#endif
+
+// <o> NRF_MAXIMUM_LATENCY_US - Maximum possible time[us] in highest priority interrupt 
+#ifndef NRF_MAXIMUM_LATENCY_US
+#define NRF_MAXIMUM_LATENCY_US 2000
+#endif
+
+// </e>
+
+// <e> TWI_ENABLED - nrf_drv_twi - TWI/TWIM peripheral driver - legacy layer
+//==========================================================
+#ifndef TWI_ENABLED
+#define TWI_ENABLED 1
+#endif
+// <o> TWI_DEFAULT_CONFIG_FREQUENCY  - Frequency
+ 
+// <26738688=> 100k 
+// <67108864=> 250k 
+// <104857600=> 400k 
+
+#ifndef TWI_DEFAULT_CONFIG_FREQUENCY
+#define TWI_DEFAULT_CONFIG_FREQUENCY 26738688
+#endif
+
+// <q> TWI_DEFAULT_CONFIG_CLR_BUS_INIT  - Enables bus clearing procedure during init
+ 
+
+#ifndef TWI_DEFAULT_CONFIG_CLR_BUS_INIT
+#define TWI_DEFAULT_CONFIG_CLR_BUS_INIT 0
+#endif
+
+// <q> TWI_DEFAULT_CONFIG_HOLD_BUS_UNINIT  - Enables bus holding after uninit
+ 
+
+#ifndef TWI_DEFAULT_CONFIG_HOLD_BUS_UNINIT
+#define TWI_DEFAULT_CONFIG_HOLD_BUS_UNINIT 0
+#endif
+
+// <o> TWI_DEFAULT_CONFIG_IRQ_PRIORITY  - Interrupt priority
+ 
+
+// <i> Priorities 0,2 (nRF51) and 0,1,4,5 (nRF52) are reserved for SoftDevice
+// <0=> 0 (highest) 
+// <1=> 1 
+// <2=> 2 
+// <3=> 3 
+// <4=> 4 
+// <5=> 5 
+// <6=> 6 
+// <7=> 7 
+
+#ifndef TWI_DEFAULT_CONFIG_IRQ_PRIORITY
+#define TWI_DEFAULT_CONFIG_IRQ_PRIORITY 6
+#endif
+
+// <e> TWI0_ENABLED - Enable TWI0 instance
+//==========================================================
+#ifndef TWI0_ENABLED
+#define TWI0_ENABLED 1
+#endif
+// <q> TWI0_USE_EASY_DMA  - Use EasyDMA (if present)
+ 
+
+#ifndef TWI0_USE_EASY_DMA
+#define TWI0_USE_EASY_DMA 1
+#endif
+
+// </e>
+
+// <e> TWI1_ENABLED - Enable TWI1 instance
+//==========================================================
+#ifndef TWI1_ENABLED
+#define TWI1_ENABLED 0
+#endif
+// <q> TWI1_USE_EASY_DMA  - Use EasyDMA (if present)
+ 
+
+#ifndef TWI1_USE_EASY_DMA
+#define TWI1_USE_EASY_DMA 0
+#endif
+
+// </e>
+
+// </e>
+
+// </h> 
+//==========================================================
+#+END_SRC
+And replace
+#+BEGIN_SRC c
+#define NRF_MEMOBJ_ENABLED 1
+#endif
+#+END_SRC
+with
+#+BEGIN_SRC c
+#define NRF_MEMOBJ_ENABLED 1
+#endif
+
+// <e> NRF_PWR_MGMT_ENABLED - nrf_pwr_mgmt - Power management module
+//==========================================================
+#ifndef NRF_PWR_MGMT_ENABLED
+#define NRF_PWR_MGMT_ENABLED 1
+#endif
+// <e> NRF_PWR_MGMT_CONFIG_DEBUG_PIN_ENABLED - Enables pin debug in the module.
+
+// <i> Selected pin will be set when CPU is in sleep mode.
+//==========================================================
+#ifndef NRF_PWR_MGMT_CONFIG_DEBUG_PIN_ENABLED
+#define NRF_PWR_MGMT_CONFIG_DEBUG_PIN_ENABLED 0
+#endif
+// <o> NRF_PWR_MGMT_SLEEP_DEBUG_PIN  - Pin number
+ 
+// <0=> 0 (P0.0) 
+// <1=> 1 (P0.1) 
+// <2=> 2 (P0.2) 
+// <3=> 3 (P0.3) 
+// <4=> 4 (P0.4) 
+// <5=> 5 (P0.5) 
+// <6=> 6 (P0.6) 
+// <7=> 7 (P0.7) 
+// <8=> 8 (P0.8) 
+// <9=> 9 (P0.9) 
+// <10=> 10 (P0.10) 
+// <11=> 11 (P0.11) 
+// <12=> 12 (P0.12) 
+// <13=> 13 (P0.13) 
+// <14=> 14 (P0.14) 
+// <15=> 15 (P0.15) 
+// <16=> 16 (P0.16) 
+// <17=> 17 (P0.17) 
+// <18=> 18 (P0.18) 
+// <19=> 19 (P0.19) 
+// <20=> 20 (P0.20) 
+// <21=> 21 (P0.21) 
+// <22=> 22 (P0.22) 
+// <23=> 23 (P0.23) 
+// <24=> 24 (P0.24) 
+// <25=> 25 (P0.25) 
+// <26=> 26 (P0.26) 
+// <27=> 27 (P0.27) 
+// <28=> 28 (P0.28) 
+// <29=> 29 (P0.29) 
+// <30=> 30 (P0.30) 
+// <31=> 31 (P0.31) 
+// <4294967295=> Not connected 
+
+#ifndef NRF_PWR_MGMT_SLEEP_DEBUG_PIN
+#define NRF_PWR_MGMT_SLEEP_DEBUG_PIN 31
+#endif
+
+// </e>
+
+// <q> NRF_PWR_MGMT_CONFIG_CPU_USAGE_MONITOR_ENABLED  - Enables CPU usage monitor.
+ 
+
+// <i> Module will trace percentage of CPU usage in one second intervals.
+
+#ifndef NRF_PWR_MGMT_CONFIG_CPU_USAGE_MONITOR_ENABLED
+#define NRF_PWR_MGMT_CONFIG_CPU_USAGE_MONITOR_ENABLED 0
+#endif
+
+// <e> NRF_PWR_MGMT_CONFIG_STANDBY_TIMEOUT_ENABLED - Enable standby timeout.
+//==========================================================
+#ifndef NRF_PWR_MGMT_CONFIG_STANDBY_TIMEOUT_ENABLED
+#define NRF_PWR_MGMT_CONFIG_STANDBY_TIMEOUT_ENABLED 0
+#endif
+// <o> NRF_PWR_MGMT_CONFIG_STANDBY_TIMEOUT_S - Standby timeout (in seconds). 
+// <i> Shutdown procedure will begin no earlier than after this number of seconds.
+
+#ifndef NRF_PWR_MGMT_CONFIG_STANDBY_TIMEOUT_S
+#define NRF_PWR_MGMT_CONFIG_STANDBY_TIMEOUT_S 3
+#endif
+
+// </e>
+
+// <q> NRF_PWR_MGMT_CONFIG_FPU_SUPPORT_ENABLED  - Enables FPU event cleaning.
+ 
+
+#ifndef NRF_PWR_MGMT_CONFIG_FPU_SUPPORT_ENABLED
+#define NRF_PWR_MGMT_CONFIG_FPU_SUPPORT_ENABLED 1
+#endif
+
+// <q> NRF_PWR_MGMT_CONFIG_AUTO_SHUTDOWN_RETRY  - Blocked shutdown procedure will be retried every second.
+ 
+
+#ifndef NRF_PWR_MGMT_CONFIG_AUTO_SHUTDOWN_RETRY
+#define NRF_PWR_MGMT_CONFIG_AUTO_SHUTDOWN_RETRY 0
+#endif
+
+// <q> NRF_PWR_MGMT_CONFIG_USE_SCHEDULER  - Module will use @ref app_scheduler.
+ 
+
+#ifndef NRF_PWR_MGMT_CONFIG_USE_SCHEDULER
+#define NRF_PWR_MGMT_CONFIG_USE_SCHEDULER 0
+#endif
+
+// <o> NRF_PWR_MGMT_CONFIG_HANDLER_PRIORITY_COUNT - The number of priorities for module handlers. 
+// <i> The number of stages of the shutdown process.
+
+#ifndef NRF_PWR_MGMT_CONFIG_HANDLER_PRIORITY_COUNT
+#define NRF_PWR_MGMT_CONFIG_HANDLER_PRIORITY_COUNT 3
+#endif
+
+// </e>
+#+END_SRC
+*** Linker settings
+The OPTIGA library allocates memory on the heap. For proper operation, the heap should have a size of 8,192 Bytes or larger.
+Configure the heap size at Project > Right click > Common > Runtime Memory Area > Heap Size.
+*** Section placement macros
+The placement of memory sections is defined by the XML file ~flash_placement.xml~, referenced from Project > Right click > Common > Linker > Section Placement File.
+The file uses macros to specify bootloader and application sizes, defined in Project > Right click > Common > Linker > Section Placement Macros.
+The macros =FLASH_START= and =FLASH_SIZE= define the location and size of the bootloader's program code.
+For the provided example, use the following values:
+#+BEGIN_SRC
+FLASH_START=0x70000
+FLASH_SIZE=0x0e000
+#+END_SRC
+Nordic explains in a blog post[fn::https://devzone.nordicsemi.com/tutorials/b/getting-started/posts/adjustment-of-ram-and-flash-memory 2019-01-21] how a developer can adjust the RAM and FLASH memory start addresses.
+*** Pin conflict (Trust X Shield)
+The pins for LEDs 1 and 2 on the Nordic DK are conflicting with the RST and VCC pins for Trust X.
+To resolve this issue, comment out the lines that control the respective LEDs in the bootloader's ~main.c~ file:
+#+BEGIN_SRC
+//            bsp_board_led_on(BSP_BOARD_LED_1);
+//            bsp_board_led_off(BSP_BOARD_LED_2);
+//            bsp_board_led_off(BSP_BOARD_LED_1);
+//            bsp_board_led_on(BSP_BOARD_LED_2);
+#+END_SRC
