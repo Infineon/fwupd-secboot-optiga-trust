@@ -1,0 +1,8 @@
+__pycache__
+*.emSession
+*.jlink
+*.mak
+Output/
+*.bak
+_build
+pyvenv

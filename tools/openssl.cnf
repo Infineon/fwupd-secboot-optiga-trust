@@ -1,0 +1,9 @@
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+
+[req]
+distinguished_name = req_distinguished_name
+
+[req_distinguished_name]
+# empty

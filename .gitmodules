@@ -1,0 +1,3 @@
+[submodule "sdk/optiga-trust-x"]
+	path = sdk/optiga-trust-x
+	url = https://github.com/Infineon/optiga-trust-x
